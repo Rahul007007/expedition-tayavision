@@ -121,6 +121,7 @@ def main(
         config=model_config,
     )
     model.to(device)
+    model = torch.compile(model)
 
     processor = TinyAyaVisionProcessor(
         config=model_config,
