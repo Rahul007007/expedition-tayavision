@@ -19,8 +19,10 @@ class AlignmentDataset(torch.utils.data.Dataset):
         data_dir: str = "data/llava-pretrain",
     ):
         self.data_dir = Path(data_dir)
+        print(f"Loading dataset from {self.data_dir / 'blip_laion_cc_sbu_558k.json'}...")
         with open(self.data_dir / "blip_laion_cc_sbu_558k.json", "r") as f:
             self.dataset = json.load(f)
+        print(f"Loaded {len(self.dataset)} examples")
         self.processor = TinyAyaVisionProcessor(
             config=config,
         )
