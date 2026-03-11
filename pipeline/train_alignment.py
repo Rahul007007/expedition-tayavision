@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 from dataclasses import asdict
@@ -107,6 +108,14 @@ def main(
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     print(f"Run ID: {run_id}")
     print(f"Checkpoint dir: {checkpoint_dir}")
+
+    config_path = checkpoint_dir / "config.json"
+    if not config_path.exists():
+        with open(config_path, "w") as f:
+            json.dump({
+                "training_config": asdict(training_config),
+                "model_config": asdict(model_config),
+            }, f, indent=2)
 
     wandb.init(
         project="tayavision",
