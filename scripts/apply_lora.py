@@ -23,7 +23,10 @@ if you want differential learning rates for A vs. B adapter matrices.
 """
 
 import argparse
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 import torch.nn as nn
