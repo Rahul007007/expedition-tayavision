@@ -59,13 +59,14 @@ def train(
                 batch["labels"].to(device),
             )
 
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                pixel_values=pixel_values,
-                labels=labels,
-            )
-            loss = outputs.loss / training_config.grad_acc_steps
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    pixel_values=pixel_values,
+                    labels=labels,
+                )
+                loss = outputs.loss / training_config.grad_acc_steps
             loss.backward()
             accumulated_loss += loss.item()
 
@@ -119,7 +120,6 @@ def main(
         config=model_config,
     )
     model.to(device)
-    model = torch.compile(model)
 
     processor = TinyAyaVisionProcessor(
         config=model_config,
@@ -131,6 +131,11 @@ def main(
         param.requires_grad = False
     for param in model.language_model.parameters():
         param.requires_grad = False
+
+    model.vision_encoder.to(dtype=torch.bfloat16)
+    model.language_model.to(dtype=torch.bfloat16)
+
+    model = torch.compile(model)
 
     model.language_model.gradient_checkpointing_enable()
 
