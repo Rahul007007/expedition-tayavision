@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--batch-size", type=str, default="auto")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output-dir", type=str, default="evaluation/results")
+    parser.add_argument("--log-samples", action="store_true", help="Log per-question results")
     args = parser.parse_args()
 
     logger.info(f"Starting evaluation for task: {args.task}")
@@ -50,6 +51,9 @@ def main():
 
     if args.limit is not None:
         cmd.extend(["--limit", str(args.limit)])
+    
+    if args.log_samples:
+        cmd.append("--log_samples")
     
     try:
         subprocess.run(cmd, check=True)
