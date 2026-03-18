@@ -1,23 +1,21 @@
 """
-Run alignment training on Modal.
+Run instruction fine-tuning on Modal.
 
 Usage:
-    modal run --detach scripts/modal_train_alignment.py
-    modal run --detach scripts/modal_train_alignment.py --vision siglip
-    MODAL_GPU=A100-80GB modal run --detach scripts/modal_train_alignment.py --vision moonvit
-    modal run --detach scripts/modal_train_alignment.py --resume-run-id <id>
-    modal run --detach scripts/modal_train_alignment.py --llm global --learning-rate 1e-3 --weight-decay 0.01
+    modal run --detach scripts/modal_train_instruct.py
+    modal run --detach scripts/modal_train_instruct.py --alignment-checkpoint /models/<run_id>/checkpoint_<step>.pt
+    modal run --detach scripts/modal_train_instruct.py --resume-run-id <id>
+    MODAL_GPU=A100-80GB modal run --detach scripts/modal_train_instruct.py
+    modal run --detach scripts/modal_train_instruct.py --learning-rate 1e-5 --weight-decay 0.01
 """
 
 import os
 
 import modal
 
-# Read GPU from MODAL_GPU env var so it can be set before the app is created.
-# Usage: MODAL_GPU=A100-80GB modal run --detach scripts/modal_train_alignment.py --vision moonvit
 GPU = os.environ.get("MODAL_GPU", "A10G")
 
-app = modal.App("tayavision-train-alignment")
+app = modal.App("tayavision-train-instruct")
 volume = modal.Volume.from_name("tayavision-data")
 models_volume = modal.Volume.from_name("tayavision-models", create_if_missing=True)
 
@@ -38,9 +36,7 @@ image = (
         "tqdm",
         "einops",
         "wandb",
-        "hydra-core",
-        "omegaconf",
-        "pyyaml",
+        "peft",
     )
     .add_local_dir("config", remote_path="/root/project/config")
     .add_local_dir("src", remote_path="/root/project/src")
@@ -57,43 +53,48 @@ image = (
     timeout=3600 * 24,
 )
 def train(
-    vision: str = "moonvit",
-    llm: str = "base",
     resume_run_id: str | None = None,
+    alignment_checkpoint: str | None = None,
     learning_rate: float | None = None,
     weight_decay: float | None = None,
 ):
     import sys
     sys.path.insert(0, "/root/project")
 
-    from hydra import compose, initialize_config_dir
-    from pipeline.train_alignment import run
+    from config.lora_config import LoraAdapterConfig
+    from config.model_config import TinyAyaVisionConfig
+    from config.training_config import InstructConfig
+    from pipeline.train_instruct import main
 
-    overrides = [f"vision={vision}", f"llm={llm}"]
-    if resume_run_id:
-        overrides.append(f"resume={resume_run_id}")
+    model_config = TinyAyaVisionConfig.for_global()
+    lora_config = LoraAdapterConfig.from_vlm_config(model_config)
+
+    training_config = InstructConfig()
+    if alignment_checkpoint is not None:
+        training_config.alignment_checkpoint = alignment_checkpoint
     if learning_rate is not None:
-        overrides.append(f"learning_rate={learning_rate}")
+        training_config.learning_rate = learning_rate
     if weight_decay is not None:
-        overrides.append(f"weight_decay={weight_decay}")
+        training_config.weight_decay = weight_decay
 
-    with initialize_config_dir(config_dir="/root/project/config", version_base="1.3"):
-        cfg = compose(config_name="config", overrides=overrides)
-        run(cfg)
+    main(
+        training_config=training_config,
+        model_config=model_config,
+        lora_config=lora_config,
+        resume_run_id=resume_run_id,
+    )
 
 
 @app.local_entrypoint()
 def main(
-    vision: str = "moonvit",
-    llm: str = "base",
     resume_run_id: str = None,
+    alignment_checkpoint: str = None,
     learning_rate: float = None,
     weight_decay: float = None,
 ):
     train.remote(
-        vision=vision,
-        llm=llm,
         resume_run_id=resume_run_id,
+        alignment_checkpoint=alignment_checkpoint,
         learning_rate=learning_rate,
         weight_decay=weight_decay,
     )
