@@ -1,0 +1,3 @@
+task: global_mgsm_direct_wo
+dataset_name: wo
+include: _default_yaml

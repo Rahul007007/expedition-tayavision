@@ -1,0 +1,3 @@
+task: global_mgsm_direct_vi
+dataset_name: vi
+include: _default_yaml
