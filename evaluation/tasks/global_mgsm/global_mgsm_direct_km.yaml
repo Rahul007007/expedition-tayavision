@@ -1,0 +1,3 @@
+task: global_mgsm_direct_km
+dataset_name: km
+include: _default_yaml

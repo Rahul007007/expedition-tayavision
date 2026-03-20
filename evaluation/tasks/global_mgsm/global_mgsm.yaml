@@ -1,0 +1,91 @@
+group: global_mgsm
+group_alias: Global MGSM (41 languages)
+task:
+  - task: global_mgsm_direct_am
+    task_alias: am
+  - task: global_mgsm_direct_ar
+    task_alias: ar
+  - task: global_mgsm_direct_bn
+    task_alias: bn
+  - task: global_mgsm_direct_ca
+    task_alias: ca
+  - task: global_mgsm_direct_cs
+    task_alias: cs
+  - task: global_mgsm_direct_cy
+    task_alias: cy
+  - task: global_mgsm_direct_de
+    task_alias: de
+  - task: global_mgsm_direct_el
+    task_alias: el
+  - task: global_mgsm_direct_en
+    task_alias: en
+  - task: global_mgsm_direct_es
+    task_alias: es
+  - task: global_mgsm_direct_eu
+    task_alias: eu
+  - task: global_mgsm_direct_fr
+    task_alias: fr
+  - task: global_mgsm_direct_gl
+    task_alias: gl
+  - task: global_mgsm_direct_gu
+    task_alias: gu
+  - task: global_mgsm_direct_ha
+    task_alias: ha
+  - task: global_mgsm_direct_hu
+    task_alias: hu
+  - task: global_mgsm_direct_ja
+    task_alias: ja
+  - task: global_mgsm_direct_km
+    task_alias: km
+  - task: global_mgsm_direct_kn
+    task_alias: kn
+  - task: global_mgsm_direct_ko
+    task_alias: ko
+  - task: global_mgsm_direct_ky
+    task_alias: ky
+  - task: global_mgsm_direct_lg
+    task_alias: lg
+  - task: global_mgsm_direct_my
+    task_alias: my
+  - task: global_mgsm_direct_ne
+    task_alias: ne
+  - task: global_mgsm_direct_ru
+    task_alias: ru
+  - task: global_mgsm_direct_si
+    task_alias: si
+  - task: global_mgsm_direct_sn
+    task_alias: sn
+  - task: global_mgsm_direct_sr
+    task_alias: sr
+  - task: global_mgsm_direct_st
+    task_alias: st
+  - task: global_mgsm_direct_sw
+    task_alias: sw
+  - task: global_mgsm_direct_ta
+    task_alias: ta
+  - task: global_mgsm_direct_te
+    task_alias: te
+  - task: global_mgsm_direct_th
+    task_alias: th
+  - task: global_mgsm_direct_ur
+    task_alias: ur
+  - task: global_mgsm_direct_uz
+    task_alias: uz
+  - task: global_mgsm_direct_vi
+    task_alias: vi
+  - task: global_mgsm_direct_wo
+    task_alias: wo
+  - task: global_mgsm_direct_xh
+    task_alias: xh
+  - task: global_mgsm_direct_yo
+    task_alias: yo
+  - task: global_mgsm_direct_zh
+    task_alias: zh
+  - task: global_mgsm_direct_zu
+    task_alias: zu
+aggregate_metric_list:
+  - metric: exact_match
+    aggregation: mean
+    weight_by_size: true
+metadata:
+  version: 2.0

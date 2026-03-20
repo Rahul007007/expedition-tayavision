@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModel
+from transformers import AutoConfig, AutoModel
 
 from config.model_config import TinyAyaVisionConfig
 from src.vision_encoders.base import BaseVisionEncoder
@@ -22,11 +22,20 @@ class MoonViTVisionEncoder(BaseVisionEncoder):
     def __init__(self, config: TinyAyaVisionConfig):
         super().__init__()
         self.config = config
-        self.vision_model = AutoModel.from_pretrained(
-            config.vision_model_name,
-            torch_dtype=getattr(torch, config.torch_dtype),
-            trust_remote_code=True,
-        )
+        if config.vision_tower_config is not None:
+            # Downloads only the config JSON + model code (~KB), not weights (~400MB).
+            vision_cfg = AutoConfig.from_pretrained(
+                config.vision_model_name, trust_remote_code=True,
+            )
+            self.vision_model = AutoModel.from_config(
+                vision_cfg, trust_remote_code=True,
+            )
+        else:
+            self.vision_model = AutoModel.from_pretrained(
+                config.vision_model_name,
+                torch_dtype=config.torch_dtype,
+                trust_remote_code=True,
+            )
         self.vision_model.requires_grad_(False)
 
     def forward(

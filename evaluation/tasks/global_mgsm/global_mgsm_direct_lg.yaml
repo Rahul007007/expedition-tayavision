@@ -1,0 +1,3 @@
+task: global_mgsm_direct_lg
+dataset_name: lg
+include: _default_yaml

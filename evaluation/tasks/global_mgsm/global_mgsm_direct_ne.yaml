@@ -1,0 +1,3 @@
+task: global_mgsm_direct_ne
+dataset_name: ne
+include: _default_yaml

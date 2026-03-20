@@ -62,6 +62,7 @@ def load_model_config_from_hub(repo: str = HF_REPO) -> TinyAyaVisionConfig:
 
 
 def load_model(device: torch.device, repo: str = HF_REPO):
+    """Load model + processor from a Hub repo with legacy connector.pt format."""
     model_config = load_model_config_from_hub(repo)
     processor = TinyAyaVisionProcessor(config=model_config)
     model = TinyAyaVisionForConditionalGeneration(config=model_config)

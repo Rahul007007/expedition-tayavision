@@ -383,7 +383,7 @@ def main(
         with open(config_path, "w") as f:
             json.dump({
                 "training_config": asdict(training_config),
-                "model_config": asdict(model_config),
+                "model_config": model_config.to_dict(),
                 "lora_config": asdict(lora_config),
             }, f, indent=2)
 

@@ -1,5 +1,5 @@
 import torch
-from transformers import SiglipVisionModel
+from transformers import SiglipVisionConfig, SiglipVisionModel
 
 from config.model_config import TinyAyaVisionConfig
 from src.vision_encoders.base import BaseVisionEncoder
@@ -15,10 +15,14 @@ class SigLIPVisionEncoder(BaseVisionEncoder):
     def __init__(self, config: TinyAyaVisionConfig):
         super().__init__()
         self.config = config
-        self.vision_model = SiglipVisionModel.from_pretrained(
-            config.vision_model_name,
-            torch_dtype=getattr(torch, config.torch_dtype),
-        )
+        if config.vision_tower_config is not None:
+            vision_cfg = SiglipVisionConfig(**config.vision_tower_config)
+            self.vision_model = SiglipVisionModel(vision_cfg)
+        else:
+            self.vision_model = SiglipVisionModel.from_pretrained(
+                config.vision_model_name,
+                torch_dtype=config.torch_dtype,
+            )
         self.vision_model.requires_grad_(False)
 
     def forward(self, pixel_values: torch.Tensor, **kwargs) -> torch.Tensor:

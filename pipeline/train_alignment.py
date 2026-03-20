@@ -179,7 +179,7 @@ def run(cfg: DictConfig):
         with open(config_path, "w") as f:
             json.dump({
                 "training_config": asdict(training_config),
-                "model_config": asdict(model_config),
+                "model_config": model_config.to_dict(),
             }, f, indent=2)
 
     wandb.init(
@@ -189,7 +189,7 @@ def run(cfg: DictConfig):
         name=run_id,
         id=run_id.replace("-", ""),
         resume="allow",
-        config={**asdict(training_config), **asdict(model_config)},
+        config={**asdict(training_config), **model_config.to_dict()},
     )
 
     model = TinyAyaVisionForConditionalGeneration(

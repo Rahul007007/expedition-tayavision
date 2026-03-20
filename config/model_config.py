@@ -1,65 +1,81 @@
 from __future__ import annotations
 
-import dataclasses
-from dataclasses import dataclass
+import inspect
 from pathlib import Path
 
 import yaml
+from transformers import PretrainedConfig
 
 
-@dataclass
-class TinyAyaVisionConfig:
+class TinyAyaVisionConfig(PretrainedConfig):
     """Central configuration for the Tiny Aya Vision model."""
 
-    # Vision encoder type: "siglip" | "moonvit"
-    vision_encoder_type: str = "siglip"
+    model_type = "tiny_aya_vision"
 
-    # Vision encoder (SigLIP2-so400m-patch14-384)
-    vision_model_name: str = "google/siglip2-so400m-patch14-384"
-    vision_hidden_size: int = 1152
-    image_size: int = 384
-    patch_size: int = 14
-    vision_grid_size: int = 27  # 384 // 14
-    num_vision_tokens: int = 729  # 27 * 27
-    trust_remote_code: bool = False
-
-    # Connector type: "pixel_shuffle" | "linear_mlp"
-    connector_type: str = "pixel_shuffle"
-
-    # Pixel Shuffle (4x token compression) — SigLIP only
-    downsample_factor: int = 2
-    padded_grid_size: int = 28  # ceil_to_even(27)
-    num_tokens_after_shuffle: int = 196  # (28 // 2) ** 2
-    pixel_shuffle_embed_dim: int = 4608  # 1152 * (2 ** 2)
-
-    # MoonViT — tokens per tile (output structure: list of (N_tiles, tokens_per_tile, D))
-    tokens_per_tile: int = 4
-    # MoonViT — max patches fed to the encoder (caps visual tokens per image)
-    in_token_limit: int = 1024
-
-    # Vision-language connector (2-layer MLP with SwiGLU)
-    connector_intermediate_size: int = 2048  # matches LLM hidden_size
-    adapter_layer_norm_eps: float = 1e-6
-    post_projector_rms_norm: bool = False
-
-    # LLM backbone
-    llm_model_name: str = "CohereLabs/tiny-aya-base"
-    llm_hidden_size: int = 2048
-    llm_vocab_size: int = 262144
-    num_llm_layers: int = 36  # Cohere2: 36 transformer layers
-
-    # Special tokens
-    image_token: str = "<image>"
-
-    # Inference defaults
-    torch_dtype: str = "bfloat16"
-
-    # Vision feature extraction
-    vision_feature_layer: int = -1
-    # "full" = all patches, "default" = crop CLS
-    vision_feature_select_strategy: str = "full"
-
-    cache_dir: str = ""  # adjust this path as needed
+    def __init__(
+        self,
+        vision_encoder_type: str = "siglip",
+        vision_model_name: str = "google/siglip2-so400m-patch14-384",
+        vision_hidden_size: int = 1152,
+        image_size: int = 384,
+        patch_size: int = 14,
+        vision_grid_size: int = 27,
+        num_vision_tokens: int = 729,
+        trust_remote_code: bool = False,
+        connector_type: str = "pixel_shuffle",
+        downsample_factor: int = 2,
+        padded_grid_size: int = 28,
+        num_tokens_after_shuffle: int = 196,
+        pixel_shuffle_embed_dim: int = 4608,
+        tokens_per_tile: int = 4,
+        in_token_limit: int = 1024,
+        connector_intermediate_size: int = 2048,
+        adapter_layer_norm_eps: float = 1e-6,
+        post_projector_rms_norm: bool = False,
+        llm_model_name: str = "CohereLabs/tiny-aya-base",
+        llm_hidden_size: int = 2048,
+        llm_vocab_size: int = 262144,
+        num_llm_layers: int = 36,
+        image_token: str = "<image>",
+        image_token_id: int | None = None,
+        torch_dtype: str = "bfloat16",
+        vision_feature_layer: int = -1,
+        vision_feature_select_strategy: str = "full",
+        cache_dir: str | None = None,
+        text_config: dict | None = None,
+        vision_tower_config: dict | None = None,
+        **kwargs,
+    ):
+        self.vision_encoder_type = vision_encoder_type
+        self.vision_model_name = vision_model_name
+        self.vision_hidden_size = vision_hidden_size
+        self.image_size = image_size
+        self.patch_size = patch_size
+        self.vision_grid_size = vision_grid_size
+        self.num_vision_tokens = num_vision_tokens
+        self.trust_remote_code = trust_remote_code
+        self.connector_type = connector_type
+        self.downsample_factor = downsample_factor
+        self.padded_grid_size = padded_grid_size
+        self.num_tokens_after_shuffle = num_tokens_after_shuffle
+        self.pixel_shuffle_embed_dim = pixel_shuffle_embed_dim
+        self.tokens_per_tile = tokens_per_tile
+        self.in_token_limit = in_token_limit
+        self.connector_intermediate_size = connector_intermediate_size
+        self.adapter_layer_norm_eps = adapter_layer_norm_eps
+        self.post_projector_rms_norm = post_projector_rms_norm
+        self.llm_model_name = llm_model_name
+        self.llm_hidden_size = llm_hidden_size
+        self.llm_vocab_size = llm_vocab_size
+        self.num_llm_layers = num_llm_layers
+        self.image_token = image_token
+        self.image_token_id = image_token_id
+        self.vision_feature_layer = vision_feature_layer
+        self.vision_feature_select_strategy = vision_feature_select_strategy
+        self.cache_dir = cache_dir
+        self.text_config = text_config
+        self.vision_tower_config = vision_tower_config
+        super().__init__(torch_dtype=torch_dtype, **kwargs)
 
     @classmethod
     def for_base(cls) -> TinyAyaVisionConfig:
@@ -94,7 +110,8 @@ class TinyAyaVisionConfig:
         with open(yaml_path) as f:
             overrides = yaml.safe_load(f)
 
-        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        sig = inspect.signature(cls.__init__)
+        valid_fields = set(sig.parameters.keys()) - {"self", "kwargs"}
         filtered = {k: v for k, v in overrides.items() if k in valid_fields}
 
         llm_names = {

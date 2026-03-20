@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
-from transformers import AutoModelForCausalLM, GenerationMixin
+from transformers import AutoModelForCausalLM, PreTrainedModel
 from transformers.modeling_outputs import ModelOutput
 
 from config.model_config import TinyAyaVisionConfig
@@ -22,7 +21,7 @@ class TinyAyaVisionOutput(ModelOutput):
     image_hidden_states: torch.FloatTensor | None = None
 
 
-class TinyAyaVisionForConditionalGeneration(nn.Module, GenerationMixin):
+class TinyAyaVisionForConditionalGeneration(PreTrainedModel):
     """Tiny Aya Vision: multilingual VLM connecting a vision encoder to Tiny Aya Base.
 
     Architecture:
@@ -33,35 +32,41 @@ class TinyAyaVisionForConditionalGeneration(nn.Module, GenerationMixin):
     projected vision features, then runs the combined sequence through the LLM.
     """
 
+    config_class = TinyAyaVisionConfig
     main_input_name = "input_ids"
-    _is_stateful = False  # required by GenerationMixin._supports_default_dynamic_cache
+    _supports_flash_attn_2 = False
+    _no_split_modules = ["SigLIPVisionEncoder", "MoonViTVisionEncoder"]
+    _tied_weights_keys = ["language_model.lm_head.weight"]
 
     def __init__(self, config: TinyAyaVisionConfig):
-        super().__init__()
-        self.vlm_config = config
+        super().__init__(config)
 
-        # Vision encoder (frozen) — selected by config.vision_encoder_type
         self.vision_encoder = create_vision_encoder(config)
+        if config.vision_tower_config is None:
+            config.vision_tower_config = self.vision_encoder.vision_model.config.to_dict()
 
-        # Vision-language connector (trainable), cast to configured dtype so
-        # it matches the bfloat16 outputs from the frozen vision encoder.
-        self.multi_modal_projector = create_projector(config).to(
-            getattr(torch, config.torch_dtype)
-        )
+        self.multi_modal_projector = create_projector(config).to(config.torch_dtype)
 
-        # Language model
-        self.language_model = AutoModelForCausalLM.from_pretrained(
-            config.llm_model_name,
-            torch_dtype=getattr(torch, config.torch_dtype),
-            cache_dir=config.cache_dir,
-        )
+        if config.text_config is not None:
+            from transformers import CONFIG_MAPPING
+            text_config_cls = CONFIG_MAPPING[config.text_config["model_type"]]
+            text_cfg = text_config_cls.from_dict(config.text_config)
+            self.language_model = AutoModelForCausalLM.from_config(text_cfg)
+        else:
+            self.language_model = AutoModelForCausalLM.from_pretrained(
+                config.llm_model_name,
+                torch_dtype=config.torch_dtype,
+                cache_dir=config.cache_dir,
+            )
+            config.text_config = self.language_model.config.to_dict()
 
-        # Expose the LLM's PretrainedConfig as self.config so GenerationMixin
-        # can call self.config._get_generation_parameters() and related methods.
-        self.config = self.language_model.config
+        self.generation_config = self.language_model.generation_config
+        self._image_token_id: int | None = config.image_token_id
 
-        # Store the image token id (set during tokenizer setup)
-        self._image_token_id: int | None = None
+        self.post_init()
+
+    def _init_weights(self, module):
+        pass
 
     @property
     def image_token_id(self) -> int:
@@ -71,36 +76,32 @@ class TinyAyaVisionForConditionalGeneration(nn.Module, GenerationMixin):
             )
         return self._image_token_id
 
-    @property
-    def device(self) -> torch.device:
-        return next(self.language_model.parameters()).device
-
-    @property
-    def generation_config(self):
-        return self.language_model.generation_config
-
-    @generation_config.setter
-    def generation_config(self, value):
-        self.language_model.generation_config = value
-
     def setup_tokenizer(self, tokenizer) -> None:
         """Add <image> special token to tokenizer and resize embeddings.
 
         Must be called after initialization and before forward/generate.
         """
         num_added = tokenizer.add_special_tokens(
-            {"additional_special_tokens": [self.vlm_config.image_token]}
+            {"additional_special_tokens": [self.config.image_token]}
         )
-        self._image_token_id = tokenizer.convert_tokens_to_ids(self.vlm_config.image_token)
+        self._image_token_id = tokenizer.convert_tokens_to_ids(self.config.image_token)
+        self.config.image_token_id = self._image_token_id
 
         if num_added > 0:
             self.language_model.resize_token_embeddings(len(tokenizer))
+            self.config.text_config = self.language_model.config.to_dict()
 
     def get_input_embeddings(self):
         return self.language_model.get_input_embeddings()
 
     def set_input_embeddings(self, value):
         self.language_model.set_input_embeddings(value)
+
+    def get_output_embeddings(self):
+        return self.language_model.get_output_embeddings()
+
+    def set_output_embeddings(self, new_embeddings):
+        self.language_model.set_output_embeddings(new_embeddings)
 
     def get_image_features(
         self,
@@ -118,14 +119,12 @@ class TinyAyaVisionForConditionalGeneration(nn.Module, GenerationMixin):
             MoonViT: list of (N_tiles_i * tokens_per_tile, llm_hidden_size) tensors,
                      one per image.
         """
-        if self.vlm_config.vision_encoder_type == "moonvit":
-            # Returns list of (N_tiles_i, tokens_per_tile, D) tensors
+        if self.config.vision_encoder_type == "moonvit":
             raw_features = self.vision_encoder(pixel_values, image_grid_hws=image_grid_hws)
             projected = []
             for feat in raw_features:
-                # (N_tiles, tokens_per_tile, D) -> (N_tiles * tokens_per_tile, D)
                 feat = feat.view(-1, feat.shape[-1])
-                proj = self.multi_modal_projector(feat)  # (T, llm_hidden_size)
+                proj = self.multi_modal_projector(feat)
                 projected.append(proj)
             return projected
         else:
@@ -147,10 +146,8 @@ class TinyAyaVisionForConditionalGeneration(nn.Module, GenerationMixin):
         special_image_mask = input_ids == self.image_token_id
 
         if isinstance(image_features, list):
-            # MoonViT: concatenate all per-image features, scatter in sequence order
-            flat_features = torch.cat(image_features, dim=0)  # (sum(T_i), D)
+            flat_features = torch.cat(image_features, dim=0)
         else:
-            # SigLIP: flatten (B, T, D) -> (B*T, D)
             flat_features = image_features.reshape(-1, image_features.shape[-1])
 
         n_image_tokens = special_image_mask.sum().item()
@@ -181,19 +178,9 @@ class TinyAyaVisionForConditionalGeneration(nn.Module, GenerationMixin):
         cache_position: torch.LongTensor | None = None,
         **kwargs,
     ) -> TinyAyaVisionOutput:
-        """Forward pass for the VLM.
-
-        For multimodal input: pass both input_ids (with <image> placeholders)
-        and pixel_values. The <image> tokens are replaced with projected vision
-        features before being passed to the LLM.
-
-        For MoonViT: also pass image_grid_hws from the processor output.
-        For text-only input: pass input_ids without pixel_values.
-        """
         if inputs_embeds is None:
             inputs_embeds = self.get_input_embeddings()(input_ids)
 
-        # Merge image features into the text embedding sequence
         image_features = None
         if pixel_values is not None:
             image_features = self.get_image_features(pixel_values, image_grid_hws)
@@ -246,7 +233,6 @@ class TinyAyaVisionForConditionalGeneration(nn.Module, GenerationMixin):
             **kwargs,
         )
 
-        # Only pass pixel_values on the first iteration (no cache yet)
         is_first = past_key_values is None or (
             cache_position is not None and cache_position[0] == 0
         )
