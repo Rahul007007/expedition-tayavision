@@ -40,6 +40,11 @@ seed: 42
 alignment_checkpoint: ""
 instruct_checkpoint: "/data/model_ckpts/instruct_ckpts/664e72e8-f3a0-4278-87b4-0632ed353cdf/checkpoint_9754.pt"
 
+merge_after_training: true
+merge_alpha: 0.5
+merge_output_dir: ""
+merge_save_hf: true
+
 # Multilingual mixing parameters
 total_samples: 1000000
 english_ratio: 0.4

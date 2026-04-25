@@ -21,6 +21,11 @@ seed: 42
 
 alignment_checkpoint: "/data/model_ckpts/alignment_ckpts/4d93b48c-941b-4e37-9120-ea89f9fb3ad7/checkpoint_4361.pt"
 
+merge_after_training: true
+merge_alpha: 0.5
+merge_output_dir: ""
+merge_save_hf: true
+
 lora:
   rank: 256
   lora_alpha: 512
