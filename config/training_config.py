@@ -43,3 +43,9 @@ class InstructConfig(AlignmentConfig):
 
     # Path to alignment checkpoint (.pt) to initialise the projector from
     alignment_checkpoint: str = ""
+
+    # Post-training merge: LERP fine-tuned VLM with original text-only LLM
+    merge_after_training: bool = True
+    merge_alpha: float = 0.5
+    merge_output_dir: str = ""   # empty → checkpoint_dir / "merged"
+    merge_save_hf: bool = True

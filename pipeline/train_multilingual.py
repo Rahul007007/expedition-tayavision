@@ -51,13 +51,13 @@ from models.tiny_aya_vision import TinyAyaVisionForConditionalGeneration
 from pipeline.data import collate_fn
 from pipeline.multilingual_data import MultilingualInstructDataset
 from pipeline.apply_lora import apply_lora, get_lora_optimizer_groups
+from pipeline.merge_utils import find_latest_checkpoint, run_post_training_merge
 from pipeline.train_instruct import (
     is_torchrun,
     setup_ddp,
     cleanup_ddp,
     _unwrap_model,
     save_checkpoint,
-    find_latest_checkpoint,
     generate_samples,
     train,
 )
@@ -313,6 +313,21 @@ def main(
         processor=processor,
         step_offset=resume_step,
     )
+
+    if is_main and training_config.merge_after_training:
+        merge_dir = (
+            Path(training_config.merge_output_dir)
+            if training_config.merge_output_dir
+            else checkpoint_dir / "merged"
+        )
+        run_post_training_merge(
+            raw_model=_unwrap_model(model),
+            original_llm_name=model_config.llm_model_name,
+            alpha=training_config.merge_alpha,
+            output_dir=merge_dir,
+            dtype=compute_dtype,
+            save_hf=training_config.merge_save_hf,
+        )
 
     if is_main:
         wandb.finish()
