@@ -46,3 +46,9 @@ class InstructConfig(AlignmentConfig):
 
     # Save merged HF-compatible model after training
     save_hf_model: bool = False
+
+    # Optionally merge the VLM's LLM backbone with the original base LLM
+    # using linear interpolation (LERP) after LoRA merge.
+    merge_with_base_llm: bool = False
+    base_llm_name: str = ""       # e.g. "CohereForAI/tiny-aya-global"
+    merge_alpha: float = 0.7      # 0 = pure base LLM, 1 = pure VLM

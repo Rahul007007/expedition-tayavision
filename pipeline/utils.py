@@ -75,14 +75,38 @@ def find_latest_checkpoint(checkpoint_dir: Path) -> Path | None:
     return max(checkpoints, key=extract_step)
 
 
-def save_hf_model(model, processor: TinyAyaVisionProcessor, checkpoint_dir: Path) -> Path:
+def save_hf_model(model, processor: TinyAyaVisionProcessor, checkpoint_dir: Path, training_config=None) -> Path:
     """Merge LoRA into the base model and save in HuggingFace format.
+
+    If ``training_config.merge_with_base_llm`` is True, additionally performs
+    linear interpolation (LERP) of the VLM's LLM backbone with the
+    original base LLM weights.
 
     Returns the output directory path.
     """
     print("Merging LoRA and saving HF-compatible model...")
     raw_model = _unwrap_model(model)
     raw_model.language_model = raw_model.language_model.merge_and_unload()
+
+    # Optionally merge with original base LLM via weight interpolation
+    if (
+        training_config is not None
+        and getattr(training_config, "merge_with_base_llm", False)
+        and training_config.base_llm_name
+    ):
+        from scripts.merge_weights import build_merged_vlm_state, _load_original_llm
+
+        alpha = training_config.merge_alpha
+        print(f"Merging VLM backbone with '{training_config.base_llm_name}' (α={alpha})...")
+
+        finetuned_state = {k: v.detach().cpu() for k, v in raw_model.state_dict().items()}
+        original_llm_state = _load_original_llm(
+            training_config.base_llm_name, device="cpu", dtype=torch.bfloat16,
+        )
+        merged_state = build_merged_vlm_state(original_llm_state, finetuned_state, alpha)
+        raw_model.load_state_dict(merged_state, strict=False)
+        del original_llm_state, finetuned_state, merged_state
+        print("Weight merge complete.")
 
     hf_output_dir = checkpoint_dir / "hf_model"
     save_for_inference(raw_model, processor, hf_output_dir)

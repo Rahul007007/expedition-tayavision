@@ -527,7 +527,7 @@ def main(
     )
 
     if is_main and training_config.save_hf_model:
-        save_hf_model(model, processor, checkpoint_dir)
+        save_hf_model(model, processor, checkpoint_dir, training_config)
 
     if is_main:
         wandb.finish()
