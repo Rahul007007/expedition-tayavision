@@ -51,14 +51,14 @@ from models.tiny_aya_vision import TinyAyaVisionForConditionalGeneration
 from pipeline.data import collate_fn
 from pipeline.multilingual_data import MultilingualInstructDataset
 from pipeline.apply_lora import apply_lora, get_lora_optimizer_groups
-from pipeline.train_instruct import (
+from pipeline.utils import (
     is_torchrun,
-    setup_ddp,
     cleanup_ddp,
     _unwrap_model,
-    save_checkpoint,
     find_latest_checkpoint,
-    generate_samples,
+    build_lr_scheduler,
+)
+from pipeline.train_instruct import (
     train,
 )
 from src.processing import TinyAyaVisionProcessor
@@ -277,22 +277,7 @@ def main(
         weight_decay=training_config.weight_decay,
     )
 
-    full_loader_len = full_dataset_len // (per_gpu_batch_size * world_size)
-    total_steps = training_config.num_epochs * full_loader_len // training_config.grad_acc_steps
-    warmup_steps = int(total_steps * training_config.warmup_ratio)
-
-    if training_config.lr_scheduler_type == "cosine":
-        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
-            opt, start_factor=1e-8 / training_config.learning_rate, total_iters=warmup_steps,
-        )
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            opt, T_max=total_steps - warmup_steps, eta_min=training_config.learning_rate * 0.01,
-        )
-        lr_scheduler = torch.optim.lr_scheduler.SequentialLR(
-            opt, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps],
-        )
-    else:
-        raise ValueError(f"Unsupported LR scheduler: {training_config.lr_scheduler_type}")
+    lr_scheduler = build_lr_scheduler(opt, training_config, full_dataset_len, per_gpu_batch_size, world_size)
 
     if resume_step > 0:
         opt.load_state_dict(ckpt["optimizer"])
