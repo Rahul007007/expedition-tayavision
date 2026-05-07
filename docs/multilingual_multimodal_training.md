@@ -691,3 +691,275 @@ Based on the combined findings of Qwen2-VL, InternVL 2.5, and LLaVA-OneVision:
 [34] Chen, Z., Wang, W., Cao, Y., et al. "Expanding Performance Boundaries of Open-Source Multimodal Models with Model, Data, and Test-Time Scaling." (InternVL 2.5) arXiv:2412.05271, 2024.
 
 [35] Zhang, H., Gao, M., Gan, Z., et al. "MM1.5: Methods, Analysis & Insights from Multimodal LLM Fine-tuning." arXiv:2409.20566, 2024.
+
+---
+
+## 6. Additional Continual Pretraining Strategies for Multilingual Capability
+
+The strategies in Sections 3–5 cover data mixing and post-training alignment. This section expands the playbook with **continual pretraining** techniques specifically designed to inject or preserve multilingual capability in LLMs and VLMs, drawn from recent (2024–2026) research.
+
+### 6.1 Vocabulary Extension + Continual Pretraining (MaLA-500, Glot500)
+
+When adapting a primarily-English LLM to many new languages, the existing tokenizer is highly inefficient — it splits low-resource language text into many byte-level tokens, inflating sequence length and degrading quality.
+
+**Technique:**
+1. **Extend the vocabulary** by training a new SentencePiece/BPE tokenizer on target-language corpora, then adding new tokens to the existing model.
+2. **Initialize new embeddings** via similarity-based heuristics: for each new token, compute its representation as a weighted average of existing subword embeddings that compose it (OFA method [36]) or use a hypernetwork that predicts embeddings for unseen tokens (HYPEROFA [37]).
+3. **Continual pretrain** on target-language text with the extended vocabulary.
+
+**Results:** MaLA-500 extends LLaMA-2 to 534 languages via vocabulary extension + continual pretraining on Glot500-c corpus. Achieves +11.68% macro-average accuracy on SIB200 over prior multilingual LLMs [38]. Glot500 scales XLM-R to 500 languages with similar approach [39].
+
+**Applicability to TayaVision:** Tiny Aya Global already has a 262K vocabulary covering 70+ languages, so vocabulary extension is **low priority** unless targeting scripts entirely absent from the tokenizer (e.g., Tibetan, Khmer). However, the embedding initialization techniques are useful if you ever add new special tokens.
+
+> **Key insight:** Vocabulary token fertility (tokens per word) directly correlates with downstream quality. Monitor fertility per language — if a language requires >3× more tokens per word than English, consider vocabulary extension [40].
+
+### 6.2 Layer-Specific Optimization (ELO)
+
+Not all layers contribute equally during multilingual continual pretraining. ELO (Efficient Layer-Specific Optimization) [41] assigns **different learning rates per layer** based on measured gradient magnitudes during the first few hundred steps:
+
+$$\text{lr}_l = \text{lr}_{\text{base}} \cdot \frac{\|\nabla_l\|}{\max_k \|\nabla_k\|}$$
+
+where $\|\nabla_l\|$ is the gradient norm for layer $l$.
+
+**Results:** Accepted at EACL 2026 Industrial Track. On Korean and Japanese continual pretraining of LLaMA-3-8B, ELO matches full fine-tuning quality with ~40% less compute by concentrating updates on layers that actually need adaptation.
+
+**Applicability to TayaVision:** Your current LoRA setup applies uniform LR to all adapted layers (18–35). Implementing per-layer LR scaling within the existing `get_lora_optimizer_groups()` function would be straightforward — instead of just splitting by lora_A/lora_B, also split by layer index and scale LR based on initial gradient norms.
+
+### 6.3 Curriculum Learning for Cross-Lingual Adaptation (Persian-Phi)
+
+Persian-Phi [42] demonstrates a **three-phase curriculum** for adapting a compact (3.8B) English LLM to a new language:
+
+1. **Phase 1 — Script familiarization:** Train on raw monolingual text (next-token prediction) to teach the model the target script and basic patterns. Use a high learning rate.
+2. **Phase 2 — Bilingual alignment:** Train on parallel English↔target text (translation pairs, bilingual dictionaries) to anchor the new language to existing English knowledge. Reduce LR.
+3. **Phase 3 — Instruction tuning:** Train on target-language instruction-following data. Lowest LR.
+
+**Results:** Persian-Phi-3.8B outperforms models 4× its size on Persian benchmarks, and the curriculum ordering is critical — skipping Phase 2 (bilingual alignment) causes 8–12% degradation.
+
+**Applicability to TayaVision:** This maps directly to a **pre-multilingual-SFT continual pretraining stage**:
+- Phase 1: train on multilingual monolingual text (10–20K steps, high LR, next-token prediction on Aya Collection / CC100 subsets for underrepresented languages)
+- Phase 2: train on parallel/bilingual pairs (translation data, XLSum bilingual alignment)
+- Phase 3: your existing multilingual instruction tuning
+
+### 6.4 Multi-Way Parallel Corpus Training
+
+"From Unaligned to Aligned" [43] (EMNLP 2025 Oral) shows that **multi-way parallel corpora** — where the same sentence is available in N languages simultaneously — dramatically improves cross-lingual alignment versus monolingual or bilingual data alone:
+
+**Technique:**
+1. Source or construct multi-way parallel data (e.g., OPUS-100, NLLB, Flores-200).
+2. During continual pretraining, present the model with **concatenated parallel passages**: `[lang_A text] [SEP] [lang_B text] [SEP] [lang_C text]` and train next-token prediction on all segments.
+3. The model learns explicit cross-lingual correspondence within a single context window.
+
+**Results:** +5.2% average improvement on XNLI and +3.8% on XL-Sum over bilingual-only continual pretraining. Language families that benefit most are those with the least original pretraining data.
+
+**Applicability to TayaVision:** Use Flores-200 (which covers all 70+ Tiny Aya languages in 200-sentence parallel sets) as a cheap alignment signal during continual pretraining. For the multimodal setting, you could even construct **trilingual visual QA**: same image, same question + answer in 3 languages per training example.
+
+### 6.5 Data Reweighting via Distributionally Robust Optimization (XDoGE)
+
+XDoGE [44] extends DoReMi's group DRO idea specifically to **multilingual continual pretraining**:
+
+1. Assign each language as a "group."
+2. During training, maintain a running estimate of per-language loss.
+3. Dynamically upweight languages where the model is currently weakest (highest loss relative to a reference model).
+4. The reweighting is applied at the **batch construction** level, not requiring a separate proxy model.
+
+**Key difference from DoReMi:** XDoGE operates **online** during training (no separate proxy stage), making it cheaper and more adaptive. The reference model can simply be the same model at initialization.
+
+**Results:** On BLOOM continual pretraining, XDoGE improves low-resource language perplexity by 8–15% with negligible high-resource regression, using the same total compute as uniform sampling.
+
+**Applicability to TayaVision:** This can be implemented directly in your `MultilingualInstructDataset` by tracking per-language running loss during training and adjusting the sampling weights every N steps:
+
+```python
+# In train loop, after computing loss:
+lang_losses[current_lang] = 0.9 * lang_losses[current_lang] + 0.1 * loss.item()
+# Every 100 steps, recompute sampling weights:
+weights = softmax(lang_losses / temperature)
+dataset.update_sampling_weights(weights)
+```
+
+### 6.6 Romanization as Cross-Lingual Bridge (RomanSetu)
+
+RomanSetu [45] (ACL 2024) proposes using **romanized text** (Latin-script transliterations) as an intermediate representation to bootstrap multilingual capability:
+
+1. Romanize all non-Latin script text using ISO 15919 or Dakshina transliteration.
+2. Continual pretrain on romanized text — the model can now leverage its English/Latin-script knowledge for Hindi, Arabic, Thai, etc.
+3. At inference, optionally chain: input → romanize → generate → de-romanize.
+
+**Results:** +4–7% improvement on Hindi, Arabic, and Bengali benchmarks over direct continual pretraining, especially effective for models with Latin-script-dominated pre-training.
+
+**Applicability to TayaVision:** Tiny Aya Global already handles non-Latin scripts well. However, for the **lowest-resource languages** (Amharic, Khmer, Burmese, Lao) where data is scarce, adding romanized variants as **data augmentation** during continual pretraining can effectively double your training signal.
+
+### 6.7 Scaling Machine-Translated Pretraining Data
+
+"Scaling, Simplification, and Adaptation" [46] demonstrates that **machine-translated monolingual text** can break the "data wall" for low-resource languages:
+
+1. Translate large English corpora (Wikipedia, C4 subsets) into target languages using NLLB or Gemini.
+2. Filter for translation quality using LangID confidence + round-trip consistency scores.
+3. Use this synthetic monolingual text for continual pretraining (not instruction tuning).
+
+**Key finding:** For languages with <1GB of natural text, adding 5–10GB of filtered MT text improves downstream benchmarks by 6–12%, even though the text is synthetic. The quality filtering step is critical — unfiltered MT text provides only ~40% of the gain.
+
+**Applicability to TayaVision:** For your 12 African languages and languages like Lao, Khmer, Burmese where multimodal data is near-zero, generating MT monolingual text for a short continual pretraining stage (before multilingual SFT) is the highest-ROI intervention available.
+
+### 6.8 Phonemic Prompting for Non-Latin Scripts
+
+"Prompting with Phonemes" [47] (NAACL 2025) shows that adding **phonemic transcriptions** (IPA) alongside native script text improves LLM performance on non-Latin-script languages by 2–5% across benchmarks:
+
+- During training, randomly augment samples: `[native_text] (phonemic: [IPA_text])`
+- This helps the model map sounds to meanings across scripts, leveraging its English phonological knowledge.
+
+**Applicability to TayaVision:** Low-cost data augmentation. Use `epitran` or `phonemizer` Python libraries to generate IPA for a fraction of your multilingual text-only replay data.
+
+### 6.9 Exploring Design Choices for Language-Specific LLMs
+
+Tejaswi et al. [48] (EMNLP 2024 Findings) systematically ablated **every key design choice** for building language-specific LLMs via continual pretraining:
+
+| Design Choice | Best Setting | Insight |
+|---|---|---|
+| **Base model selection** | Multilingual base > English-only base | Starting from a model with any target-language exposure is always better |
+| **Continual pretraining data** | Mix of target + English (70:30) | Pure target-language CPT causes English catastrophic forgetting |
+| **Learning rate** | 1/10th of original pretraining LR | Higher LR causes faster forgetting of source knowledge |
+| **Training duration** | 1–2 epochs on available data | Overfitting on small corpora degrades rapidly after 2 epochs |
+| **Instruction tuning data** | Translate high-quality EN data > use native low-quality | Translation quality > native data quantity for instruction following |
+
+**Most critical finding:** The **learning rate during continual pretraining** is the single most important hyperparameter. Too high and the model forgets English; too low and it doesn't learn the new language. The sweet spot is typically 1e-5 to 5e-5 for a 7B model — roughly 5–10× lower than the original pretraining LR.
+
+**Applicability to TayaVision:** Your current multilingual SFT LR is 2e-5, which is in the right range. If you add a continual pretraining stage before SFT, use 5e-6 to 1e-5 for that stage.
+
+### 6.10 Babel: Massive Multilingual LLM via Staged Expansion
+
+Babel [49] covers 90%+ of world speakers with a staged continual pretraining approach:
+
+1. **Stage 1 — Language-family continual pretraining:** Group languages into ~10 families. Train separate LoRA adapters per family on monolingual data.
+2. **Stage 2 — Cross-family alignment:** Merge family-specific adapters into the base model, then train on multi-way parallel data across all families.
+3. **Stage 3 — Unified instruction tuning:** Standard multilingual SFT on the merged model.
+
+**Key insight:** Training per-family adapters first and then merging consistently outperforms training a single model on all languages simultaneously. This is consistent with Aya Expanse's language-cluster merging finding (Section 4.3) but extends it to the continual pretraining phase.
+
+### 6.11 Two-Stage Adaptation for Extremely Low-Resource Languages
+
+Chen et al. [50] adapt Qwen2.5-3B to Tibetan (an extremely low-resource language) using:
+
+1. **Stage 1 — Continual pretraining:** ~500K Tibetan sentences, LR=5e-6, 3 epochs. No instruction format, pure next-token prediction.
+2. **Stage 2 — Supervised fine-tuning:** ~10K translated instruction pairs, LR=2e-5, 1 epoch.
+
+**Key finding:** Stage 1 alone is insufficient (model can generate Tibetan but not follow instructions). Stage 2 alone is insufficient (model doesn't know Tibetan well enough). Both stages together yield 15–25% improvement over either alone.
+
+**Applicability to TayaVision:** For your weakest languages (Amharic, Wolof, Khmer, Lao, Burmese), this two-stage approach is directly applicable. Use monolingual data from CC100/Glot500-c for Stage 1, then translated instruction data for Stage 2.
+
+### 6.12 Fine-Tuning Transfer Across Languages
+
+Lin et al. [51] show that **fine-tuning recipes transfer across languages** — if you find the optimal hyperparameters (LR, epochs, data mix) for one language, the same recipe works well for typologically similar languages:
+
+- Tune on Spanish → transfer to Portuguese, Italian, French (saves 3× tuning compute)
+- Tune on Hindi → transfer to Bengali, Marathi, Gujarati
+- Tune on Swahili → transfer to other Bantu languages
+
+This means you don't need to ablate every language independently — tune on one anchor per family, then apply the recipe to the rest.
+
+### 6.13 DRPruning: Structured Pruning with Multilingual Fairness
+
+DRPruning [52] (ACL 2025) applies distributionally robust optimization to model **pruning**, ensuring that compression doesn't disproportionately harm low-resource languages:
+
+- During pruning, dynamically reweight the importance score computation to emphasize underperforming languages.
+- Result: 50% pruned model retains 95%+ of multilingual performance vs. 80% with naive magnitude pruning.
+
+**Applicability to TayaVision:** If you ever need to compress TayaVision for deployment, use DRPruning-style fairness constraints to protect low-resource language quality during quantization or distillation.
+
+---
+
+## 7. Proposed Continual Pretraining Pipeline for TayaVision Multilingual
+
+Based on all strategies above, here is the complete recommended pipeline:
+
+### Stage 0 — Baseline Evaluation (1 day)
+Run existing multilingual eval suite on current instruct checkpoint to establish per-language baselines.
+
+### Stage 1 — Multilingual Continual Pretraining (new stage, 2–3 days)
+
+**Purpose:** Inject multilingual knowledge before multimodal instruction tuning.
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| Data | CC100/Glot500-c monolingual text, 70% target langs + 30% English | [48] finding |
+| Total tokens | ~500M | ~1% of original pretraining, sufficient for adaptation |
+| Learning rate | 5e-6 | 1/10th of SFT LR, per [48] |
+| Schedule | Cosine with 5% warmup | Standard |
+| Trainable params | LoRA (all layers, rank 128) + projector | Broader than SFT LoRA to touch lower-layer multilingual knowledge |
+| Curriculum | Phase 1: monolingual text (60%), Phase 2: bilingual parallel (40%) | Per [42] |
+| Sampling | XDoGE online reweighting with T=5 initial temperature | [44] |
+
+### Stage 2 — Multilingual Multimodal SFT (existing, improved)
+
+Use existing `train_multilingual.py` with these changes:
+- Add temperature annealing: $T(t) = 5.0 - 3.0 \cdot t/t_{\max}$
+- Add multilingual text replay: 12% of mix (Aya Dataset + bloom-lm)
+- Add English text replay: 6% of mix (Magpie Pro / Tulu 3)
+- Enable online XDoGE-style per-language loss tracking and weight adjustment
+
+### Stage 3 — Post-Training (optional, 1 day)
+
+- Merge LoRA → base with $\alpha=0.7$ (trained) : $0.3$ (original)
+- Run 1 round offline DPO with multilingual preference pairs
+
+### Feedback Loop Gates
+
+After each stage, evaluate on:
+1. CVQA (multilingual multimodal)
+2. m-ArenaHard subset (multilingual text-only)
+3. English-only VQA (regression check)
+
+**Go/no-go:** Advance only if multilingual improves ≥1.5 pts without English dropping >1 pt.
+
+---
+
+## References (continued)
+
+[36] Liu, Y., Lin, P., Schütze, H. "OFA: A Framework of Initializing Unseen Subword Embeddings for Efficient Large-Scale Multilingual Continued Pretraining." arXiv:2311.08849, 2024.
+
+[37] Özeren, E., Liu, Y., Schütze, H. "HYPEROFA: Expanding LLM Vocabulary to New Languages via Hypernetwork-Based Embedding Initialization." arXiv:2504.21018, 2025.
+
+[38] Lin, P., Ji, S., Tiedemann, J., Martins, A.F.T., Schütze, H. "MaLA-500: Massive Language Adaptation of Large Language Models." arXiv:2401.13303, 2024.
+
+[39] Imani, A., Lin, P., et al. "Glot500: Scaling Multilingual Corpora and Language Models to 500 Languages." ACL 2023. arXiv:2305.12182.
+
+[40] Moroni, L., Puccetti, G., et al. "Optimizing LLMs for Italian: Reducing Token Fertility and Enhancing Efficiency Through Vocabulary Adaptation." arXiv:2504.17025, 2025.
+
+[41] Yoo, H., Choi, C., et al. "ELO: Efficient Layer-Specific Optimization for Continual Pretraining of Multilingual LLMs." EACL 2026 Industrial Track. arXiv:2601.03648.
+
+[42] Akhlaghi, A.M., et al. "Persian-Phi: Efficient Cross-Lingual Adaptation of Compact LLMs via Curriculum Learning." arXiv:2512.07454, 2025.
+
+[43] Shen, Y., Lai, W., et al. "From Unaligned to Aligned: Scaling Multilingual LLMs with Multi-Way Parallel Corpora." EMNLP 2025. arXiv:2505.14045.
+
+[44] Lacunza, I., et al. "XDoGE: Multilingual Data Reweighting to Enhance Language Inclusivity in LLMs." IEEE BigData LLMs4All Workshop, 2025. arXiv:2512.10545.
+
+[45] Husain, J.A., et al. "RomanSetu: Efficiently unlocking multilingual capabilities of Large Language Models via Romanization." ACL 2024. arXiv:2401.14280.
+
+[46] Velasco, D.J., Roque, M.T. "Scaling, Simplification, and Adaptation: Lessons from Pretraining on Machine-Translated Text." arXiv:2509.17317, 2025.
+
+[47] Nguyen, H.H., et al. "Prompting with Phonemes: Enhancing LLMs' Multilinguality for Non-Latin Script Languages." NAACL 2025. arXiv:2411.02398.
+
+[48] Tejaswi, A., Gupta, N., Choi, E. "Exploring Design Choices for Building Language-Specific LLMs." EMNLP 2024 Findings. arXiv:2406.14670.
+
+[49] Zhao, Y., et al. "Babel: Open Multilingual Large Language Models Serving Over 90% of Global Speakers." arXiv:2503.00865, 2025.
+
+[50] Chen, L., Lai, R., Liu, T. "Adapting Large Language Models to Low-Resource Tibetan: A Two-Stage Continual and Supervised Fine-Tuning Study." arXiv:2512.03976, 2025.
+
+[51] Lin, P.-J., et al. "Efficient Model Development through Fine-tuning Transfer." arXiv:2503.20110, 2025.
+
+[52] Deng, H., et al. "DRPruning: Efficient Large Language Model Pruning through Distributionally Robust Optimization." ACL 2025. arXiv:2411.14055.
+
+[53] Li, Z., Ji, S., Luo, H., Tiedemann, J. "Rethinking Multilingual Continual Pretraining: Data Mixing for Adapting LLMs Across Languages and Resources." COLM 2025. arXiv:2504.04152.
+
+[54] Li, H., Zhang, H., et al. "Toward Robust Multilingual Adaptation of LLMs for Low-Resource Languages." arXiv:2510.14466, 2025.
+
+[55] Fatimah, S., et al. "LilMoo: Compact Language Model for Hindi." arXiv:2603.03508, 2026.
+
+[56] Dorkin, A., et al. "EstLLM: Enhancing Estonian Capabilities in Multilingual LLMs via Continued Pretraining and Post-Training." arXiv:2603.02041, 2026.
+
+[57] Gao, C., et al. "Multilingual Pretraining and Instruction Tuning Improve Cross-Lingual Knowledge Alignment, But Only Shallowly." arXiv:2404.04659, 2024.
+
+[58] Körner, F., et al. "When Meanings Meet: Investigating the Emergence and Quality of Shared Concept Spaces during Multilingual Language Model Training." EACL 2026. arXiv:2601.22851.
+
+[59] Zamir, S.W., et al. "BYOL: Bring Your Own Language Into LLMs." arXiv:2601.10804, 2026.
+
+[60] Nguyen, T.S., Qorib, M.R., Ng, H.T. "OpenSeal: Good, Fast, and Cheap Construction of an Open-Source Southeast Asian LLM via Parallel Data." arXiv:2602.02266, 2026.

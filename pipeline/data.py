@@ -151,10 +151,13 @@ class InstructDataset(torch.utils.data.Dataset):
 
         # Batched filter: avoids per-row Python↔Arrow overhead.
         # Keep text-only examples (image=None) and image examples whose file exists.
+        # For 150K, image fields are bare filenames; prepend the prefix for lookup.
+        prefix = str(self._150K_IMAGE_PREFIX) if not self._is_mix665k else None
         before = len(raw)
         self.dataset = raw.filter(
             lambda batch: [
-                img is None or img in existing_files
+                img is None
+                or (os.path.join(prefix, img) if prefix else img) in existing_files
                 for img in batch["image"]
             ],
             batched=True,

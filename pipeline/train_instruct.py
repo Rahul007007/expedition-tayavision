@@ -48,6 +48,7 @@ from models.tiny_aya_vision import TinyAyaVisionForConditionalGeneration
 from pipeline.data import InstructDataset, collate_fn
 from pipeline.apply_lora import apply_lora, get_lora_optimizer_groups
 from src.processing import TinyAyaVisionProcessor
+from models import save_for_inference
 
 
 def is_torchrun() -> bool:
@@ -379,6 +380,7 @@ def main(
     model_config: TinyAyaVisionConfig,
     lora_config: LoraAdapterConfig,
     resume_run_id: str | None = None,
+    wandb_project: str = "tayavision-instruct",
 ):
     use_ddp = is_torchrun()
     if use_ddp:
@@ -437,7 +439,7 @@ def main(
 
     if is_main:
         wandb.init(
-            project="tayavision-instruct",
+            project=wandb_project,
             name=run_id,
             id=run_id.replace("-", ""),
             resume="allow",
@@ -585,6 +587,15 @@ def main(
         step_offset=resume_step,
     )
 
+    if is_main and training_config.save_hf_model:
+        print("Merging LoRA and saving HF-compatible model...")
+        raw_model = _unwrap_model(model)
+        raw_model.language_model = raw_model.language_model.merge_and_unload()
+
+        hf_output_dir = checkpoint_dir / "hf_model"
+        save_for_inference(raw_model, processor, hf_output_dir)
+        print(f"Saved HF-compatible model to {hf_output_dir}")
+
     if is_main:
         wandb.finish()
     if use_ddp:
@@ -612,6 +623,7 @@ def run(cfg: DictConfig):
         model_config=model_config,
         lora_config=lora_config,
         resume_run_id=cfg.get("resume", None),
+        wandb_project=cfg.wandb.project,
     )
 
 

@@ -233,10 +233,16 @@ class TinyAyaVisionForConditionalGeneration(PreTrainedModel, GenerationMixin):
         )
 
     def _prepare_cache_for_generation(self, generation_config, model_kwargs, *args, **kwargs):
-        # Delegate to the language model so it uses the correct cache type (uses hybrid cache)
-        return self.language_model._prepare_cache_for_generation(
-            generation_config, model_kwargs, *args, **kwargs
+        # Force DynamicCache instead of the HybridCache that Cohere2 normally
+        # uses. HybridCache triggers a static-cache compilation path inside
+        # generate() that is incompatible with the VLM wrapper's image-merging
+        # logic, causing an infinite hang during prefill.
+        from transformers import DynamicCache
+
+        model_kwargs["past_key_values"] = DynamicCache(
+            config=self.config.get_text_config(decoder=True)
         )
+        return model_kwargs
 
     def prepare_inputs_for_generation(
         self,
@@ -268,8 +274,13 @@ class TinyAyaVisionForConditionalGeneration(PreTrainedModel, GenerationMixin):
         # Merge image features into embeddings before the LM trims input_ids
         # forward() can't locate <image> positions after trimming so its done here
         
-        # cache_position[0] == 0 identifies the first generation step.
-        is_first_step = cache_position is None or int(cache_position[0]) == 0
+        is_first_step = bool(is_first_iteration)
+        if not is_first_step and past_key_values is None:
+            is_first_step = True
+        if not is_first_step and cache_position is not None and cache_position.numel() > 0:
+            is_first_step = int(cache_position[0]) == 0
+        if not is_first_step and past_key_values is not None and hasattr(past_key_values, "get_seq_length"):
+            is_first_step = past_key_values.get_seq_length() == 0
         if (
             is_first_step
             and pixel_values is not None

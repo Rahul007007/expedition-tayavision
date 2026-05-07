@@ -43,3 +43,6 @@ class InstructConfig(AlignmentConfig):
 
     # Path to alignment checkpoint (.pt) to initialise the projector from
     alignment_checkpoint: str = ""
+
+    # Save merged HF-compatible model after training
+    save_hf_model: bool = False
