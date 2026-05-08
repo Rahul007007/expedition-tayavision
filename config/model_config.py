@@ -72,7 +72,9 @@ class TinyAyaVisionConfig(PretrainedConfig):
         self.image_token_id = image_token_id
         self.vision_feature_layer = vision_feature_layer
         self.vision_feature_select_strategy = vision_feature_select_strategy
-        self.cache_dir = cache_dir
+        # Treat empty strings from older serialized configs as "use the
+        # Hugging Face default cache" rather than "cache in cwd".
+        self.cache_dir = cache_dir or None
         self.text_config = text_config
         self.vision_tower_config = vision_tower_config
         self._text_config_obj = None
@@ -81,28 +83,27 @@ class TinyAyaVisionConfig(PretrainedConfig):
     def get_text_config(self, decoder: bool = False, **kwargs) -> "PretrainedConfig":
         """Return a proper PretrainedConfig for the LLM sub-model.
 
-        Required by transformers >=4.56 for DynamicCache initialization
-        during generate().  Must always return a real PretrainedConfig,
-        never the raw dict stored in self.text_config, because callers
-        (e.g. GenerationConfig.from_model_config) call .to_dict() on it.
+        Required by transformers >=4.49 for GenerationConfig and DynamicCache
+        initialization during generate(). Must never return a raw dict —
+        newer transformers calls .to_dict() on the result.
         """
-        from transformers import CONFIG_MAPPING, PretrainedConfig as _PC
-
-        # _text_config_obj may be a dict after JSON round-trip; coerce it.
-        if isinstance(self._text_config_obj, dict):
-            d = self._text_config_obj
-            text_cls = CONFIG_MAPPING[d["model_type"]]
-            self._text_config_obj = text_cls.from_dict(d)
-        if isinstance(self._text_config_obj, _PC):
+        if not isinstance(self._text_config_obj, PretrainedConfig):
+            # _text_config_obj may be None or a stale dict deserialized from
+            # a config.json that was saved before this guard was in place.
+            if self.text_config is not None:
+                from transformers import CONFIG_MAPPING
+                text_cls = CONFIG_MAPPING[self.text_config["model_type"]]
+                self._text_config_obj = text_cls.from_dict(self.text_config)
+        if isinstance(self._text_config_obj, PretrainedConfig):
             return self._text_config_obj
-
-        # Build from text_config dict if available
-        if isinstance(self.text_config, dict) and "model_type" in self.text_config:
-            text_cls = CONFIG_MAPPING[self.text_config["model_type"]]
-            self._text_config_obj = text_cls.from_dict(self.text_config)
-            return self._text_config_obj
-
         return self
+
+    def to_dict(self):
+        output = super().to_dict()
+        # _text_config_obj is a derived/cached value; exclude it from the
+        # serialized config so it is never loaded back as a stale raw dict.
+        output.pop("_text_config_obj", None)
+        return output
 
     @classmethod
     def for_base(cls) -> TinyAyaVisionConfig:
