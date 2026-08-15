@@ -52,3 +52,16 @@ class InstructConfig(AlignmentConfig):
     merge_with_base_llm: bool = False
     base_llm_name: str = ""       # e.g. "CohereForAI/tiny-aya-global"
     merge_alpha: float = 0.7      # 0 = pure base LLM, 1 = pure VLM
+
+@dataclass
+class FlamingoAlignmentConfig(AlignmentConfig):
+    """Config for Flamingo-style alignment training.
+
+    Only the resampler, the gated cross-attention blocks and the ``<image>``
+    marker embedding are trained; the vision tower and the LLM stay frozen.
+    ``diversity_loss_weight`` scales SoftWhere's pairwise-overlap penalty,
+    which keeps the foveal maps from collapsing onto the same region.
+    """
+
+    diversity_loss_weight: float = 0.1
+    learning_rate: float = 1e-4

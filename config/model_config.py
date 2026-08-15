@@ -138,8 +138,14 @@ class TinyAyaVisionConfig(PretrainedConfig):
         with open(yaml_path) as f:
             overrides = yaml.safe_load(f)
 
-        sig = inspect.signature(cls.__init__)
-        valid_fields = set(sig.parameters.keys()) - {"self", "kwargs"}
+        # Collect accepted fields across the MRO so subclasses that only
+        # declare their own extra fields still accept the base ones.
+        valid_fields: set[str] = set()
+        for klass in cls.__mro__:
+            init = klass.__dict__.get("__init__")
+            if init is None:
+                continue
+            valid_fields |= set(inspect.signature(init).parameters) - {"self", "kwargs"}
         filtered = {k: v for k, v in overrides.items() if k in valid_fields}
 
         llm_names = {
@@ -150,3 +156,64 @@ class TinyAyaVisionConfig(PretrainedConfig):
             raise ValueError(f"llm must be 'base' or 'global', got '{llm}'")
 
         return cls(**filtered, llm_model_name=llm_names[llm])
+
+
+class TinyAyaFlamingoConfig(TinyAyaVisionConfig):
+    """Config for the Flamingo-style Tiny Aya Vision variant.
+
+    Keeps every vision-encoder and LLM setting of :class:`TinyAyaVisionConfig`
+    (same SigLIP tower, same ``CohereLabs/tiny-aya-*`` backbone) and adds the
+    Flamingo conditioning stack: a resampler that compresses the vision grid
+    into a few media tokens, plus gated cross-attention layers interleaved into
+    the frozen LLM.
+
+    The LLaVA-style ``connector_*`` / pixel-shuffle fields are inherited but
+    unused: media tokens are consumed by cross-attention, not spliced into the
+    text sequence, so a single ``<image>`` marker token is emitted per image.
+    """
+
+    model_type = "tiny_aya_flamingo"
+
+    def __init__(
+        self,
+        resampler_type: str = "softwhere",
+        # --- SoftWhere multi-foveal resampler ---
+        num_foveal_tokens: int = 8,
+        softwhere_variant: str = "v10",
+        softwhere_agg: str = "max",
+        softwhere_topk_patches: int = 32,
+        softwhere_nms_min_dist: int = 2,
+        # --- Perceiver resampler (Flamingo baseline) ---
+        num_latent_tokens: int = 64,
+        perceiver_depth: int = 2,
+        # --- Gated cross-attention ---
+        cross_attn_every_n_layers: int = 4,
+        xattn_num_heads: int = 8,
+        xattn_head_dim: int = 64,
+        xattn_ff_mult: int = 4,
+        only_attend_immediate_media: bool = True,
+        train_media_token_embedding: bool = True,
+        **kwargs,
+    ):
+        self.resampler_type = resampler_type
+        self.num_foveal_tokens = num_foveal_tokens
+        self.softwhere_variant = softwhere_variant
+        self.softwhere_agg = softwhere_agg
+        self.softwhere_topk_patches = softwhere_topk_patches
+        self.softwhere_nms_min_dist = softwhere_nms_min_dist
+        self.num_latent_tokens = num_latent_tokens
+        self.perceiver_depth = perceiver_depth
+        self.cross_attn_every_n_layers = cross_attn_every_n_layers
+        self.xattn_num_heads = xattn_num_heads
+        self.xattn_head_dim = xattn_head_dim
+        self.xattn_ff_mult = xattn_ff_mult
+        self.only_attend_immediate_media = only_attend_immediate_media
+        self.train_media_token_embedding = train_media_token_embedding
+        super().__init__(**kwargs)
+
+    @property
+    def num_media_tokens(self) -> int:
+        """Media tokens produced per image by the configured resampler."""
+        if self.resampler_type == "softwhere":
+            return self.num_foveal_tokens + self.softwhere_topk_patches
+        return self.num_latent_tokens

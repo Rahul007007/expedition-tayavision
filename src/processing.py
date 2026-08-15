@@ -331,3 +331,24 @@ class TinyAyaVisionProcessor(ProcessorMixin):
         result.update(text_inputs)
 
         return BatchFeature(result)
+
+
+class TinyAyaFlamingoProcessor(TinyAyaVisionProcessor):
+    """Processor for the Flamingo-style variant.
+
+    Identical to :class:`TinyAyaVisionProcessor` except that each image
+    contributes exactly **one** ``<image>`` marker token to the text sequence.
+    Flamingo injects vision through cross-attention, so the marker only records
+    *where* an image occurs — it is never replaced by visual features, and the
+    text length no longer grows with the number of visual tokens.
+    """
+
+    processor_type = "TinyAyaFlamingoProcessor"
+
+    @property
+    def image_placeholder(self) -> str:
+        """A single marker token per image (no placeholder expansion)."""
+        return self.image_token
+
+    def _tokens_per_image(self, image_grid_hws: torch.Tensor | None, n_images: int) -> list[int]:
+        return [1] * n_images

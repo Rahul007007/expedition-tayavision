@@ -64,6 +64,46 @@ def save_checkpoint(checkpoint_dir, step, model, optimizer, lr_scheduler, save_l
     print(f"Saved checkpoint to {save_path}")
 
 
+def save_flamingo_checkpoint(checkpoint_dir, step, model, optimizer, lr_scheduler):
+    """Save a Flamingo-style training checkpoint.
+
+    Stores only the trainable stack — resampler, gated cross-attention blocks
+    and the ``<image>`` marker embedding row — plus optimizer/scheduler state.
+    """
+    save_path = checkpoint_dir / f"checkpoint_{step}.pt"
+    raw_model = _unwrap_model(model)
+    state = {
+        "step": step,
+        "resampler": raw_model.resampler.state_dict(),
+        "xattn_blocks": raw_model.xattn_blocks.state_dict(),
+        "media_marker_delta": (
+            None
+            if raw_model.media_marker_delta is None
+            else raw_model.media_marker_delta.detach().cpu().clone()
+        ),
+        "optimizer": optimizer.state_dict(),
+        "lr_scheduler": lr_scheduler.state_dict(),
+    }
+    torch.save(state, save_path)
+    print(f"Saved checkpoint to {save_path}")
+
+
+def load_flamingo_checkpoint(model, ckpt: dict) -> None:
+    """Restore the trainable Flamingo stack from a checkpoint dict."""
+    raw_model = _unwrap_model(model)
+    raw_model.resampler.load_state_dict(ckpt["resampler"])
+    raw_model.xattn_blocks.load_state_dict(ckpt["xattn_blocks"])
+    delta = ckpt.get("media_marker_delta")
+    if delta is not None and raw_model.media_marker_delta is not None:
+        with torch.no_grad():
+            raw_model.media_marker_delta.copy_(
+                delta.to(
+                    raw_model.media_marker_delta.device,
+                    raw_model.media_marker_delta.dtype,
+                )
+            )
+
+
 def find_latest_checkpoint(checkpoint_dir: Path) -> Path | None:
     """Return the path to the highest-step checkpoint in a directory, or None."""
     checkpoints = list(checkpoint_dir.glob("checkpoint_*.pt"))

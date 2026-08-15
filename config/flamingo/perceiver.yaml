@@ -1,0 +1,11 @@
+# Flamingo-faithful Perceiver Resampler baseline (for ablating SoftWhere).
+resampler_type: perceiver
+num_latent_tokens: 64
+perceiver_depth: 2
+
+cross_attn_every_n_layers: 4
+xattn_num_heads: 8
+xattn_head_dim: 64
+xattn_ff_mult: 4
+only_attend_immediate_media: true
+train_media_token_embedding: true

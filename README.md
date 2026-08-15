@@ -69,3 +69,23 @@ modal run scripts/modal_train_alignment.py
 # Or with Hydra overrides
 modal run scripts/modal_train_alignment.py vision=siglip training.batch_size=32
 ```
+
+## Flamingo-style Training (SoftWhere)
+
+An alternative architecture to the LLaVA-style connector, using the same
+SigLIP2 tower and the same `tiny-aya-base` / `tiny-aya-global` backbones.
+Vision is injected through **gated cross-attention layers** interleaved in the
+frozen LLM instead of being spliced into the text sequence, and the vision grid
+is compressed by **SoftWhere's multi-foveal TokenLearner resampler** (40 media
+tokens per image instead of 196 placeholder tokens).
+
+```bash
+# Train the Flamingo + SoftWhere model
+python pipeline/train_flamingo.py
+
+# Ablate SoftWhere against a faithful Perceiver Resampler
+python pipeline/train_flamingo.py flamingo=perceiver
+```
+
+See [docs/flamingo_softwhere.md](docs/flamingo_softwhere.md) for the
+architecture, config groups, and training details.

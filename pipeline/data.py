@@ -32,13 +32,14 @@ class AlignmentDataset(torch.utils.data.Dataset):
         config: TinyAyaVisionConfig,
         dataset_name: str = "liuhaotian/LLaVA-Pretrain",
         data_dir: str = "data/llava-pretrain",
+        processor_cls: type = TinyAyaVisionProcessor,
     ):
         self.data_dir = Path(data_dir)
         json_path = self.data_dir / "blip_laion_cc_sbu_558k.json"
         print(f"Loading dataset from {json_path} (Arrow-backed)...")
         self.dataset = _load_json_arrow(json_path)
         print(f"Loaded {len(self.dataset)} examples (memory-mapped)")
-        self.processor = TinyAyaVisionProcessor(
+        self.processor = processor_cls(
             config=config,
         )
 

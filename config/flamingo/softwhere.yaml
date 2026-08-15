@@ -1,0 +1,15 @@
+# SoftWhere multi-foveal resampler (default).
+# S soft foveal tokens + K raw patches chosen by per-map top-k + spatial NMS.
+resampler_type: softwhere
+num_foveal_tokens: 8
+softwhere_variant: v10      # v10 = conv+sigmoid foveae; v11 = MLP+softmax (grid-free)
+softwhere_agg: max          # aggregation of the S maps into one importance map
+softwhere_topk_patches: 32  # 0 disables hard patch selection (foveal tokens only)
+softwhere_nms_min_dist: 2   # Chebyshev suppression radius, in patches
+
+cross_attn_every_n_layers: 4
+xattn_num_heads: 8
+xattn_head_dim: 64
+xattn_ff_mult: 4
+only_attend_immediate_media: true
+train_media_token_embedding: true

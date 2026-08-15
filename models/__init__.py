@@ -5,8 +5,12 @@ from typing import TYPE_CHECKING
 
 from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoProcessor
 
-from config.model_config import TinyAyaVisionConfig
-from src.processing import TinyAyaVisionProcessor
+from config.model_config import TinyAyaFlamingoConfig, TinyAyaVisionConfig
+from src.processing import TinyAyaFlamingoProcessor, TinyAyaVisionProcessor
+from .tiny_aya_flamingo import (
+    TinyAyaFlamingoForConditionalGeneration,
+    TinyAyaFlamingoOutput,
+)
 from .tiny_aya_vision import TinyAyaVisionForConditionalGeneration, TinyAyaVisionOutput
 
 if TYPE_CHECKING:
@@ -16,6 +20,13 @@ AutoConfig.register("tiny_aya_vision", TinyAyaVisionConfig)
 AutoModel.register(TinyAyaVisionConfig, TinyAyaVisionForConditionalGeneration)
 AutoModelForCausalLM.register(TinyAyaVisionConfig, TinyAyaVisionForConditionalGeneration)
 AutoProcessor.register(TinyAyaVisionConfig, TinyAyaVisionProcessor)
+
+AutoConfig.register("tiny_aya_flamingo", TinyAyaFlamingoConfig)
+AutoModel.register(TinyAyaFlamingoConfig, TinyAyaFlamingoForConditionalGeneration)
+AutoModelForCausalLM.register(
+    TinyAyaFlamingoConfig, TinyAyaFlamingoForConditionalGeneration
+)
+AutoProcessor.register(TinyAyaFlamingoConfig, TinyAyaFlamingoProcessor)
 
 
 def save_for_inference(
@@ -44,5 +55,8 @@ __all__ = [
     "TinyAyaVisionConfig",
     "TinyAyaVisionForConditionalGeneration",
     "TinyAyaVisionOutput",
+    "TinyAyaFlamingoConfig",
+    "TinyAyaFlamingoForConditionalGeneration",
+    "TinyAyaFlamingoOutput",
     "save_for_inference",
 ]
