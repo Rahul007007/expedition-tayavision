@@ -256,9 +256,10 @@ def run(cfg: DictConfig):
     model.vision_encoder.to(dtype=compute_dtype, non_blocking=True)
     model.language_model.to(dtype=compute_dtype, non_blocking=True)
 
-    model.language_model.gradient_checkpointing_enable(
-        gradient_checkpointing_kwargs={"use_reentrant": False}
-    )
+    if training_config.gradient_checkpointing:
+        model.language_model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False}
+        )
 
     if is_main:
         n_resampler = sum(p.numel() for p in model.resampler.parameters())

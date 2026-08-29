@@ -13,6 +13,7 @@ max_grad_norm: 1.0
 num_workers: 4
 
 diversity_loss_weight: 0.1
+gradient_checkpointing: false
 
 torch_dtype: "bfloat16"
 

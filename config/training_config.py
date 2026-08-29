@@ -58,10 +58,11 @@ class FlamingoAlignmentConfig(AlignmentConfig):
     """Config for Flamingo-style alignment training.
 
     Only the resampler, the gated cross-attention blocks and the ``<image>``
-    marker embedding are trained; the vision tower and the LLM stay frozen.
+    marker offset are trained; the vision tower and the LLM stay frozen.
     ``diversity_loss_weight`` scales SoftWhere's pairwise-overlap penalty,
     which keeps the foveal maps from collapsing onto the same region.
     """
 
     diversity_loss_weight: float = 0.1
     learning_rate: float = 1e-4
+    gradient_checkpointing: bool = False
